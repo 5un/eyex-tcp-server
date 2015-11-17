@@ -52,7 +52,8 @@
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="EyeXFramework">
+    <Reference Include="EyeXFramework, Version=1.5.466.0, Culture=neutral, PublicKeyToken=70326046dcdce6cb, processorArchitecture=x86">
+      <SpecificVersion>False</SpecificVersion>
       <HintPath>lib\EyeXFramework.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json">
@@ -64,6 +65,8 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="EyeXAPIEvent.cs" />
+    <Compile Include="EyeXAPIResponse.cs" />
     <Compile Include="FrameData.cs" />
     <Compile Include="JsonTcpServer.cs" />
     <Compile Include="EyeXTcpServer.cs" />

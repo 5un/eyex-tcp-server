@@ -12,8 +12,7 @@ using Newtonsoft.Json.Linq;
 
 namespace EyeXTcpServer
 {
-
-    public delegate void ClientMessageHandler(object sender, JObject json);
+    public delegate void ClientMessageHandler(TcpClient client, JObject json);
 
     class JsonTcpServer
     {
@@ -53,6 +52,22 @@ namespace EyeXTcpServer
                     }
                 }
             }
+        }
+
+        public void sendToClient(TcpClient client, JObject jobject)
+        {
+            try
+            {
+                NetworkStream ns = client.GetStream();
+                string strResponse = JsonConvert.SerializeObject(jobject, Formatting.None) + "\r\n";
+                byte[] b = Encoding.ASCII.GetBytes(strResponse);
+                ns.Write(b, 0, b.Length);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
+
         }
 
         private void ListenForClients()
@@ -103,20 +118,22 @@ namespace EyeXTcpServer
                         try
                         {
 
-                            
                             JObject json = JObject.Parse(message);
-                            
                             // Pass to handler
                             if (ClientMessageReceieved != null)
                             {
-                                ClientMessageReceieved(this, json);
+                                ClientMessageReceieved(tcpClient, json);
                             }
+                            
                         }
                         catch (Exception e)
                         {
                             Console.WriteLine("JSON Parse Error Occured");
-                            Console.WriteLine(e.Message);
+                            Console.WriteLine(e.ToString());
+                            Console.WriteLine(message);
+                            
                         }
+
                         message = null;
 
                     }

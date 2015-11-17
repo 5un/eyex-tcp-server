@@ -1,5 +1,5 @@
 ﻿//-----------------------------------------------------------------------
-// Copyright 2014 Tobii Technology AB. All rights reserved.
+// Copyright 2015 Soravis Prakkamakul
 //-----------------------------------------------------------------------
 
 using System;
@@ -12,6 +12,7 @@ using Newtonsoft.Json.Linq;
 using EyeXFramework;
 using Tobii.EyeX.Framework;
 using Tobii.EyeX.Client;
+using System.Collections.Generic;
 
 namespace EyeXTcpServer
 {
@@ -26,7 +27,10 @@ namespace EyeXTcpServer
         {
             while (true)
             {
-                tcpServer.sendToAllClients(frameData.toJson());
+                EyeXAPIEvent message = new EyeXAPIEvent();
+                message.eventType = "frame";
+                message.data = frameData.toJson();
+                tcpServer.sendToAllClients(message.toJson());
                 Thread.Sleep(60);
             }
         }
@@ -39,12 +43,12 @@ namespace EyeXTcpServer
             switch (EyeXHost.EyeXAvailability)
             {
                 case EyeXAvailability.NotAvailable:
-                    Console.WriteLine("This sample requires the EyeX Engine, but it isn't available.");
+                    Console.WriteLine("This server requires the EyeX Engine, but it isn't available.");
                     Console.WriteLine("Please install the EyeX Engine and try again.");
                     return;
 
                 case EyeXAvailability.NotRunning:
-                    Console.WriteLine("This sample requires the EyeX Engine, but it isn't running.");
+                    Console.WriteLine("This server requires the EyeX Engine, but it isn't running.");
                     Console.WriteLine("Please make sure that the EyeX Engine is started.");
                     break;
             }
@@ -55,25 +59,58 @@ namespace EyeXTcpServer
             {
                 
                 eyeXHost.Start();
-                //Console.WriteLine("Screen Bounds in pixels (initial value): {0}", eyeXHost.ScreenBounds);
-                //Console.WriteLine("Display Size in millimeters (initial value): {0}", eyeXHost.DisplaySize);
-                //Console.WriteLine("Eye tracking device status (initial value): {0}", eyeXHost.EyeTrackingDeviceStatus);
-                //Console.WriteLine("User presence (initial value): {0}", eyeXHost.UserPresence);
-                //Console.WriteLine("User profile name (initial value): {0}", eyeXHost.UserProfileName);
                 Console.WriteLine("SERVER: eyeXHost started");
 
-                
                 // Create a data stream: lightly filtered gaze point data.
                 // Other choices of data streams include EyePositionDataStream and FixationDataStream.
+
+                eyeXHost.ScreenBoundsChanged += (s, e) =>
+                {
+                    Console.WriteLine("[EVENT] Screen Bounds in pixels (state-changed event): {0}", e);
+                };
+
+                eyeXHost.DisplaySizeChanged += (s, e) => {
+                    Console.WriteLine("[EVENT] Display Size in millimeters (state-changed event): {0}", e);
+                };
+
+                eyeXHost.EyeTrackingDeviceStatusChanged += (s, e) => {
+                    Console.WriteLine("[EVENT] Eye tracking device status (state-changed event): {0}", e);
+                    EyeXAPIEvent message = new EyeXAPIEvent();
+                    message.eventType = "device_state_changed";
+                    tcpServer.sendToAllClients(message.toJson());
+                    Thread.Sleep(60);
+                };
+
+                eyeXHost.UserPresenceChanged += (s, e) => {
+                    Console.WriteLine("[EVENT] User presence (state-changed event): {0}", e);
+                    //TODO save it to send in frame
+                };
+
+                eyeXHost.UserProfileNameChanged += (s, e) =>
+                {
+                    Console.WriteLine("[EVENT] Active profile name (state-changed event): {0}", e);
+                };
                 
+                // This state-changed event required EyeX Engine 1.4.
+                eyeXHost.UserProfilesChanged += (s, e) =>
+                {
+                    Console.WriteLine("[EVENT] User profile names (state-changed event): {0}", e);
+                };
+
+                eyeXHost.GazeTrackingChanged += (s, e) =>
+                {
+                    Console.WriteLine("[EVENT] Gaze tracking (state-changed event): {0}", e);
+                    //TODO save it to send in frame
+                };
+
                 using (var gazeDataStream = eyeXHost.CreateGazePointDataStream(GazePointDataMode.LightlyFiltered))
                 {
 
-                    Console.WriteLine("SERVER: GazeDataStream started");
+                    Console.WriteLine("[EYEX]: GazeDataStream started");
                     using (var eyePositionStream = eyeXHost.CreateEyePositionDataStream())
                     {
 
-                        Console.WriteLine("SERVER: EyePositionStream started");
+                        Console.WriteLine("[EYEX]: EyePositionStream started");
 
                         // Write the data to the console.
                         gazeDataStream.Next += (s, e) => {
@@ -82,10 +119,6 @@ namespace EyeXTcpServer
 
                             frameData.Gaze = e;
                             frameData.userPresence = eyeXHost.UserPresence;
-
-                            //Console.WriteLine("User presence (initial value): {0}", eyeXHost.UserPresence.Value == UserPresence.Present);
-                           
-                            // If socket is open, send to all sockets
 
                         };
                     
@@ -96,19 +129,50 @@ namespace EyeXTcpServer
 
                             frameData.updateEyePosition(e);
                             frameData.userPresence = eyeXHost.UserPresence;
-
-                            //Console.WriteLine("User presence (initial value): {0}", eyeXHost.UserPresence.Value == UserPresence.Present);
-
-                            //updateAllClients();
                             
                         };
 
-                        tcpServer.ClientMessageReceieved += (s, json) =>
+                        tcpServer.ClientMessageReceieved += (TcpClient client,JObject json) =>
                         {
-                            if (json["category"].ToString() == "calibration" && json["request"].ToString() == "start")
+                            if (json["type"].ToString() == "request")
                             {
-                                Console.WriteLine("calibration requested");
-                                eyeXHost.LaunchGuestCalibration();
+                                int requestId = (int)json["requestId"];
+                                if (json["resource"].ToString() == "calibration" && json["path"].ToString() == "start")
+                                {
+                                    Console.WriteLine("[Client] Calibration requested");
+                                    EyeXAPIResponse response = new EyeXAPIResponse();
+                                    response.statusCode = 200;
+                                    response.requestId = requestId;
+                                    tcpServer.sendToClient(client, response.toJson());
+                                    eyeXHost.LaunchGuestCalibration();
+
+                                }
+
+                                if (json["resource"].ToString() == "tracker")
+                                {
+
+                                    if (json["path"].ToString() == "get.basic_info")
+                                    {
+
+                                        EyeXAPIResponse response = new EyeXAPIResponse();
+                                        response.statusCode = 200;
+                                        response.requestId = requestId;
+                                        Dictionary<string, object> result = new Dictionary<string, object>();
+                                        result.Add("screen_bounds", eyeXHost.ScreenBounds.Value);
+                                        result.Add("display_size", eyeXHost.DisplaySize.Value);
+                                        response.results = result;
+                                        tcpServer.sendToClient(client, response.toJson());
+
+                                    }
+                                    else
+                                    {
+                                        //TODO return api error: unknown method
+                                    }
+                                }
+                            }
+                            else if (json["type"].ToString() == "event")
+                            {
+                                // Client side events is not supported yet
                             }
                         };
 
